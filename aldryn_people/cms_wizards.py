@@ -16,6 +16,7 @@ from aldryn_reversion.utils import (
     build_obj_repr, get_translation_info_message,
 )
 from .models import Group, Person
+from .forms import PersonForm
 
 
 def has_published_apphook():
@@ -34,6 +35,7 @@ class BasePeopleWizard(Wizard):
     """
     Only return a success URL if we can actually use it.
     """
+
     def get_success_url(self, **kwargs):
         if has_published_apphook():
             return super(BasePeopleWizard, self).get_success_url(**kwargs)
@@ -69,40 +71,11 @@ class PeopleGroupWizard(BasePeopleWizard):
         return False
 
 
-class CreatePeoplePersonForm(BaseFormMixin, TranslatableModelForm):
-    class Meta:
-        model = Person
-        fields = ['name', 'function', 'description', 'phone', 'mobile',
-                  'email', 'website', 'groups']
-
-    def save(self, commit=True):
-        """
-        Ensure we create a revision for reversion.
-        """
-        person = super(CreatePeoplePersonForm, self).save(commit=False)
-
-        # Ensure we make an initial revision
-        with transaction.atomic():
-            with revision_context_manager.create_revision():
-                person.save()
-                self.save_m2m()
-                if self.user:
-                    revision_context_manager.set_user(self.user)
-                object_repr = build_obj_repr(person)
-                translation_info = get_translation_info_message(person)
-                revision_context_manager.set_comment(
-                    ugettext(
-                        "Initial version of {object_repr}. {trans_info}".format(
-                            object_repr=object_repr,
-                            trans_info=translation_info)))
-        return person
-
-
 class CreatePeopleGroupForm(BaseFormMixin, TranslatableModelForm):
+
     class Meta:
         model = Group
-        fields = ['name', 'description', 'address', 'postal_code', 'city',
-                  'phone', 'email', 'website']
+        fields = ['name', "profile"]
 
     def save(self, commit=True):
         """
@@ -130,7 +103,7 @@ class CreatePeopleGroupForm(BaseFormMixin, TranslatableModelForm):
 people_person_wizard = PeoplePersonWizard(
     title=_('New person'),
     weight=300,
-    form=CreatePeoplePersonForm,
+    form=PersonForm,
     description=_("Create a new person.")
 )
 

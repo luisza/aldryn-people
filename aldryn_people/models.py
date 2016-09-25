@@ -20,17 +20,10 @@ from distutils.version import LooseVersion
 from django import get_version
 from django.contrib.auth import get_user_model
 from django.conf import settings
+from django.conf import settings as cmssettings
 from django.core.urlresolvers import reverse, NoReverseMatch
 from django.db import models
 from django.utils.encoding import python_2_unicode_compatible
-try:
-    # Python>=2.7
-    from importlib import import_module
-except ImportError:
-    # Python==2.6
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        from django.utils.importlib import import_module
 
 from django.utils.translation import ugettext_lazy as _, override, force_text
 from six import text_type
@@ -49,7 +42,7 @@ from aldryn_reversion.core import version_controlled_content
 
 
 from .utils import get_additional_styles
-
+from .load_utils import get_model
 # NOTE: We use LooseVersion and not StrictVersion because sometimes Aldryn uses
 # patched build with version numbers of the form X.Y.Z.postN.
 loose_version = LooseVersion(get_version())
@@ -61,45 +54,7 @@ if loose_version < LooseVersion('1.7.0'):
     if user_model not in default_revision_manager.get_registered_models():
         default_revision_manager.register(user_model)
 else:
-    # otherwise it is a pain, but thanks to solution of getting model from
-    # https://github.com/django-oscar/django-oscar/commit/c479a1
-    # we can do almost the same thing from the different side.
-    from django.apps import apps
-    from django.apps.config import MODELS_MODULE_NAME
-    from django.core.exceptions import AppRegistryNotReady
-
     LTE_DJANGO_1_6 = False
-
-    def get_model(app_label, model_name):
-        """
-        Fetches a Django model using the app registry.
-        This doesn't require that an app with the given app label exists,
-        which makes it safe to call when the registry is being populated.
-        All other methods to access models might raise an exception about the
-        registry not being ready yet.
-        Raises LookupError if model isn't found.
-        """
-        try:
-            return apps.get_model(app_label, model_name)
-        except AppRegistryNotReady:
-            if apps.apps_ready and not apps.models_ready:
-                # If this function is called while `apps.populate()` is
-                # loading models, ensure that the module that defines the
-                # target model has been imported and try looking the model up
-                # in the app registry. This effectively emulates
-                # `from path.to.app.models import Model` where we use
-                # `Model = get_model('app', 'Model')` instead.
-                app_config = apps.get_app_config(app_label)
-                # `app_config.import_models()` cannot be used here because it
-                # would interfere with `apps.populate()`.
-                import_module('%s.%s' % (app_config.name, MODELS_MODULE_NAME))
-                # In order to account for case-insensitivity of model_name,
-                # look up the model through a private API of the app registry.
-                return apps.get_registered_model(app_label, model_name)
-            else:
-                # This must be a different case (e.g. the model really doesn't
-                # exist). We just re-raise the exception.
-                raise
 
     # now get the real user model
     user_model = getattr(settings, 'AUTH_USER_MODEL', 'auth.User')
@@ -115,17 +70,7 @@ else:
 
 @version_controlled_content
 @python_2_unicode_compatible
-class Group(TranslationHelperMixin, TranslatedAutoSlugifyMixin,
-            TranslatableModel):
-    slug_source_field_name = 'name'
-    translations = TranslatedFields(
-        name=models.CharField(_('name'), max_length=255,
-                              help_text=_("Provide this group's name.")),
-        description=HTMLField(_('description'), blank=True),
-        slug=models.SlugField(_('slug'), max_length=255, default='',
-            blank=True,
-            help_text=_("Leave blank to auto-generate a unique slug.")),
-    )
+class GroupProfile(models.Model):
     address = models.TextField(
         verbose_name=_('address'), blank=True)
     postal_code = models.CharField(
@@ -140,6 +85,65 @@ class Group(TranslationHelperMixin, TranslatedAutoSlugifyMixin,
         verbose_name=_('email'), blank=True, default='')
     website = models.URLField(
         verbose_name=_('website'), null=True, blank=True)
+
+
+@version_controlled_content
+@python_2_unicode_compatible
+class Group(TranslationHelperMixin, TranslatedAutoSlugifyMixin,
+            TranslatableModel):
+    slug_source_field_name = 'name'
+    translations = TranslatedFields(
+        name=models.CharField(_('name'), max_length=255,
+                              help_text=_("Provide this group's name.")),
+        description=HTMLField(_('description'), blank=True),
+        slug=models.SlugField(_('slug'), max_length=255, default='',
+                              blank=True,
+                              help_text=_("Leave blank to auto-generate a unique slug.")),
+    )
+
+    profile = models.OneToOneField(
+        getattr(settings, 'ALDRYN_PEOPLE_GROUP_PROFILE',
+                'aldryn_people.groupprofile'),
+    )
+
+    def check_field(self, name, value=False):
+        dev = None
+        if hasattr(self.profile, name):
+            if getattr(self.profile, name):
+                if value:
+                    dev = getattr(self.profile, name)
+                else:
+                    dev = True
+            else:
+                dev = False
+        return dev
+
+    def add_vcard(self, vcard):
+
+        if (self.check_field("address") or self.check_field("city") or
+                self.check_field("postal_code")):
+            vcard.add_line('ADR', (
+                None, None,
+                self.check_field("address", value=True),
+                self.check_field("city", value=True),
+                None,
+                self.check_field("postal_code", value=True),
+                None,
+            ), TYPE='WORK')
+
+        for field in [('TEL', "phone", 'WORK'),
+                      ('TEL', "fax", 'FAX'),
+                      ('TEL', "url"),
+                      ]:
+            if len(field) > 2:
+                vcard.add_line(
+                    field[0],
+                    self.check_field(field[1], value=True),
+                    TYPE=field[2])
+            else:
+                vcard.add_line(
+                    field[0],
+                    self.check_field(field[1], value=True))
 
     @property
     def company_name(self):
@@ -179,23 +183,15 @@ class Group(TranslationHelperMixin, TranslatedAutoSlugifyMixin,
             return reverse('aldryn_people:group-detail', kwargs=kwargs)
 
 
-@version_controlled_content(follow=['groups', 'user'])
+@version_controlled_content
 @python_2_unicode_compatible
-class Person(TranslationHelperMixin, TranslatedAutoSlugifyMixin,
-             TranslatableModel):
-    slug_source_field_name = 'name'
-
-    translations = TranslatedFields(
-        name=models.CharField(_('name'), max_length=255, blank=False,
-            default='', help_text=_("Provide this person's name.")),
-        slug=models.SlugField(_('unique slug'), max_length=255, blank=True,
-            default='',
-            help_text=_("Leave blank to auto-generate a unique slug.")),
-        function=models.CharField(_('role'),
-            max_length=255, blank=True, default=''),
-        description=HTMLField(_('description'),
-            blank=True, default='')
-    )
+class PersonProfile(models.Model):
+    visual = FilerImageField(
+        null=True, blank=True, default=None, on_delete=models.SET_NULL)
+    role = models.CharField(_('role'),
+                            max_length=255, blank=True, default=''),
+    description = HTMLField(_('description'),
+                            blank=True, default='')
     phone = models.CharField(
         verbose_name=_('phone'), null=True, blank=True, max_length=100)
     mobile = models.CharField(
@@ -206,12 +202,31 @@ class Person(TranslationHelperMixin, TranslatedAutoSlugifyMixin,
         verbose_name=_("email"), blank=True, default='')
     website = models.URLField(
         verbose_name=_('website'), null=True, blank=True)
+
+
+@version_controlled_content(follow=['groups', 'user'])
+@python_2_unicode_compatible
+class Person(TranslationHelperMixin, TranslatedAutoSlugifyMixin,
+             TranslatableModel):
+    slug_source_field_name = 'name'
+
+    translations = TranslatedFields(
+        name=models.CharField(_('name'), max_length=255, blank=False,
+                              default='', help_text=_("Provide this person's name.")),
+        slug=models.SlugField(_('unique slug'), max_length=255, blank=True,
+                              default='',
+                              help_text=_("Leave blank to auto-generate a unique slug.")),
+    )
+
+    profile = models.OneToOneField(
+        getattr(settings, 'ALDRYN_PEOPLE_PERSON_PROFILE',
+                'aldryn_people.personprofile')
+    )
+
     groups = SortedM2MModelField(
         'aldryn_people.Group', default=None, blank=True, related_name='people',
         help_text=_('Choose and order the groups for this person, the first '
                     'will be the "primary group".'))
-    visual = FilerImageField(
-        null=True, blank=True, default=None, on_delete=models.SET_NULL)
     vcard_enabled = models.BooleanField(
         verbose_name=_('enable vCard download'), default=True)
     user = models.OneToOneField(
@@ -241,7 +256,7 @@ class Person(TranslationHelperMixin, TranslatedAutoSlugifyMixin,
 
     @property
     def comment(self):
-        return self.safe_translation_getter('description', '')
+        return """self.safe_translation_getter('description', '')"""
 
     def get_absolute_url(self, language=None):
         if not language:
@@ -282,8 +297,8 @@ class Person(TranslationHelperMixin, TranslatedAutoSlugifyMixin,
         vcard.add_line('FN', safe_name)
         vcard.add_line('N', [None, safe_name, None, None, None])
 
-        if self.visual:
-            ext = self.visual.extension.upper()
+        if hasattr(self.profile, "visual") and self.profile.visual:
+            ext = self.profile.visual.extension.upper()
             try:
                 with open(self.visual.path, 'rb') as f:
                     data = force_text(base64.b64encode(f.read()))
@@ -291,48 +306,34 @@ class Person(TranslationHelperMixin, TranslatedAutoSlugifyMixin,
             except IOError:
                 if request:
                     url = urlparse.urljoin(request.build_absolute_uri(),
-                                           self.visual.url),
+                                           self.profile.visual.url),
                     vcard.add_line('PHOTO', url, TYPE=ext)
 
-        if self.email:
-            vcard.add_line('EMAIL', self.email)
+        fields = [("EMAIL", "email",),
+                  ('TITLE', "function"),
+                  ('TEL', "phone", 'WORK'),
+                  ('TEL', "mobile", 'CELL'),
+                  ('TEL', "fax", 'FAX'),
+                  ('URL', "website")]
 
-        if function:
-            vcard.add_line('TITLE', self.function)
-
-        if self.phone:
-            vcard.add_line('TEL', self.phone, TYPE='WORK')
-        if self.mobile:
-            vcard.add_line('TEL', self.mobile, TYPE='CELL')
-
-        if self.fax:
-            vcard.add_line('TEL', self.fax, TYPE='FAX')
-        if self.website:
-            vcard.add_line('URL', self.website)
+        for field in fields:
+            if hasattr(self.profile, field[1]) and getattr(self.profile, field[1]):
+                if len(field) > 2:
+                    vcard.add_line(
+                        field[0],
+                        getattr(self.profile, field[1]),
+                        TYPE=field[2])
+                else:
+                    vcard.add_line(
+                        field[0],
+                        getattr(self.profile, field[1]))
 
         if self.primary_group:
             group_name = self.primary_group.safe_translation_getter(
                 'name', default="Group: {0}".format(self.primary_group.pk))
             if group_name:
                 vcard.add_line('ORG', group_name)
-            if (self.primary_group.address or self.primary_group.city or
-                    self.primary_group.postal_code):
-                vcard.add_line('ADR', (
-                    None, None,
-                    self.primary_group.address,
-                    self.primary_group.city,
-                    None,
-                    self.primary_group.postal_code,
-                    None,
-                ), TYPE='WORK')
-
-            if self.primary_group.phone:
-                vcard.add_line('TEL', self.primary_group.phone, TYPE='WORK')
-            if self.primary_group.fax:
-                vcard.add_line('TEL', self.primary_group.fax, TYPE='FAX')
-            if self.primary_group.website:
-                vcard.add_line('URL', self.primary_group.website)
-
+            self.primary_group.get_vcard(vcard)
         return str(vcard)
 
 

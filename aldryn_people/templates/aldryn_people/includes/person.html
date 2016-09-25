@@ -11,15 +11,15 @@
         {% else %}
             {% render_model person 'name' %}
         {% endif %}
-        <small>{{ person.function }}</small>
+        
     {% if not group %}</h2>{% else %}</h3>{% endif %}
 
-    {% if person.visual %}
+    {% if person.profile.visual %}
         <p>
             {% if instance.show_links and person.get_absolute_url %}
                 <a href="{{ person.get_absolute_url }}">
             {% endif %}
-            <img src="{% thumbnail person.visual 200x100 crop subject_location=person.visual.subject_location %}" alt="{{ person.name }}">
+            <img src="{% thumbnail person.profile.visual 200x100 crop subject_location=person.profile.visual.subject_location %}" alt="{{ person.name }}">
             {% if instance.show_links and person.get_absolute_url %}
                 </a>
             {% endif %}
@@ -27,32 +27,32 @@
     {% endif %}
 
     <p>
-        {% if person.phone %}
+        {% if person.profile.phone %}
             <strong>{% trans "Phone:" %}</strong>
-            {{ person.phone|phoneformat }}<br>
+            {{ person.profile.phone|phoneformat }}<br>
         {% endif %}
-        {% if person.mobile %}
+        {% if person.profile.mobile %}
             <strong>{% trans "Mobile:" %}</strong>
-            {{ person.mobile|phoneformat }}<br>
+            {{ person.profile.mobile|phoneformat }}<br>
         {% endif %}
-        {% if person.fax %}
+        {% if person.profile.fax %}
             <strong>{% trans "Fax:" %}</strong>
-            {{ person.fax }}<br>
+            {{ person.profile.fax }}<br>
         {% endif %}
-        {% if person.email %}
+        {% if person.profile.email %}
             <strong>{% trans "Email:" %}</strong>
-            <a href="mailto:{{ person.email }}">{{ person.email }}</a><br>
+            <a href="mailto:{{ person.profile.email }}">{{ person.profile.email }}</a><br>
         {% endif %}
-        {% if person.website %}
+        {% if person.profile.website %}
             <strong>{% trans "Website:" %}</strong>
-            <a href="{{ person.website }}" target="_blank">{{ person.website }}</a><br>
+            <a href="{{ person.profile.website }}" target="_blank">{{ person.profile.website }}</a><br>
         {% endif %}
     </p>
-    {% if person.description %}
-        {{ person.description|safe }}
+    {% if person.profile.description %}
+        {{ person.profile.description|safe }}
     {% endif %}
 
-    {% if not instance and person.vcard_enabled or instance.show_vcard and person.vcard_enabled and person.get_vcard_url %}
+    {% if not instance and person.profile.vcard_enabled or instance.show_vcard and person.profile.vcard_enabled and person.get_vcard_url %}
         <a href="{{ person.get_vcard_url }}">
             {% trans "Download vCard" %}
         </a>

@@ -18,7 +18,9 @@ class PeopleIndex(get_index_base()):
         return obj.name
 
     def get_description(self, obj):
-        return obj.description
+        if hasattr(obj.profile, "description"):
+            return obj.profile.description
+        return ""
 
     def get_index_kwargs(self, language):
         return {'translations__language_code': language}

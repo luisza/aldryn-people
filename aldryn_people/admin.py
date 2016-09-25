@@ -17,6 +17,7 @@ from aldryn_translation_tools.admin import AllTranslationsMixin
 from aldryn_reversion.admin import VersionedPlaceholderAdminMixin
 
 from .models import Person, Group
+from .forms import PersonForm
 
 
 class PersonAdmin(VersionedPlaceholderAdminMixin,
@@ -24,9 +25,10 @@ class PersonAdmin(VersionedPlaceholderAdminMixin,
                   TranslatableAdmin):
 
     list_display = [
-        '__str__', 'email', 'vcard_enabled', 'num_groups', ]
+        '__str__', 'vcard_enabled', 'num_groups', ]
     list_filter = ['groups', 'vcard_enabled']
-    search_fields = ('translations__name', 'email', 'translations__function')
+    search_fields = ('translations__name', 'email')
+    form = PersonForm
 
     def formfield_for_foreignkey(self, db_field, request=None, **kwargs):
         """
@@ -45,26 +47,25 @@ class PersonAdmin(VersionedPlaceholderAdminMixin,
         return super(PersonAdmin, self).formfield_for_foreignkey(
             db_field, request, **kwargs)
 
-    fieldsets = (
-        (None, {
-            'fields': (
-                'name',
-                'slug',
-                'function', 'description',
-            ),
-        }),
-        (_('Contact (untranslated)'), {
-            'fields': (
-                'visual', 'phone', 'mobile', 'fax', 'email', 'website',
-                'user', 'vcard_enabled'
-            ),
-        }),
-        (None, {
-            'fields': (
-                'groups',
-            ),
-        }),
-    )
+#     fieldsets = (
+#         (None, {
+#             'fields': (
+#                 'name',
+#                 'slug',
+#
+#             ),
+#         }),
+#         (_('Contact (untranslated)'), {
+#             'fields': (
+#                 'profile', 'vcard_enabled'
+#             ),
+#         }),
+#         (None, {
+#             'fields': (
+#                 'groups',
+#             ),
+#         }),
+#     )
 
     def get_queryset(self, request):
         qs = super(PersonAdmin, self).get_queryset(request)
@@ -81,20 +82,19 @@ class GroupAdmin(VersionedPlaceholderAdminMixin,
                  AllTranslationsMixin,
                  TranslatableAdmin):
 
-    list_display = ['__str__', 'city', 'num_people', ]
+    list_display = ['__str__', 'num_people', ]
     search_filter = ['translations__name']
     fieldsets = (
         (None, {
             'fields': (
                 'name',
                 'slug',
-                'description',
+
             ),
         }),
         (_('Contact (untranslated)'), {
             'fields': (
-                'phone', 'fax', 'email', 'website',
-                'address', 'postal_code', 'city'
+                'profile',
             )
         }),
     )
